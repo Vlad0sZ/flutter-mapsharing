@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:developer';
 
 import 'package:flutter/material.dart';
@@ -7,7 +6,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:sharing_map/data/map_data.dart';
 import 'package:sharing_map/database/db.dart';
-import 'package:sharing_map/ui/loading_overlay.dart';
 import 'editor_widgets.dart';
 import 'editors.dart';
 
@@ -41,7 +39,6 @@ class _MapEditorState extends State<MapEditor> {
   static const double maxZoom = 18.0;
   static const double minZoom = 3.0;
 
-
   // map event notifier
   final EventNotifier eventNotifier = EventNotifier(null);
 
@@ -53,7 +50,7 @@ class _MapEditorState extends State<MapEditor> {
 
   late Future<MapData> _loadDataFuture;
 
-  MapData mapData = MapData();
+  MapData mapData = MapData.defaultData();
   int _activeEditor = -1;
 
   @override
@@ -74,7 +71,7 @@ class _MapEditorState extends State<MapEditor> {
       )
     ];
 
-    _loadDataFuture = database.loadMapData();
+    _loadDataFuture = _loadDataFromDatabase();
 
     _changeEditor(0);
     super.initState();
@@ -86,69 +83,96 @@ class _MapEditorState extends State<MapEditor> {
       appBar: AppBar(
         title: const Text("Map editor"),
       ),
-      body: FutureLoadingWidget<MapData>(
+      body: FutureBuilder<MapData>(
         future: _loadDataFuture,
-        onCompleted: _onMapDataLoaded,
-        onError: _onError,
-        loadingWidgetBuilder: (context) =>
-            const Center(child: CircularProgressIndicator()),
-        errorWidgetBuilder: (context) {
-          return Center(
-            child: ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  _loadDataFuture = database.loadMapData();
-                });
-              },
-              child: const Text("Reload"),
-            ),
-          );
-        },
-        child: Row(
-          children: [
-            NavigationRail(
-                selectedIndex: _activeEditor,
-                labelType: NavigationRailLabelType.selected,
-                onDestinationSelected: _changeEditor,
-                destinations: const [
-                  NavigationRailDestination(
-                      icon: Icon(Icons.map_rounded), label: Text("Background")),
-                  NavigationRailDestination(
-                      icon: Icon(Icons.polyline_rounded), label: Text("Zones")),
-                  NavigationRailDestination(
-                      icon: Icon(Icons.pin_drop_rounded),
-                      label: Text("Markers")),
-                ]),
-            const VerticalDivider(thickness: 1, width: 1),
-            Expanded(
-              child: FlutterMap(
-                mapController: mapController,
-                options: MapOptions(
-                    onMapReady: _mapIsReady,
-                    initialCenter: const LatLng(55.160312, 61.370404),
-                    initialZoom: 9.2,
-                    minZoom: minZoom,
-                    maxZoom: maxZoom,
-                    interactionOptions: const InteractionOptions(
-                        flags: InteractiveFlag.all & ~InteractiveFlag.rotate)),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Stack(children: [
+              _drawFlutterMap(context),
+              Opacity(
+                opacity: 0.6,
+                child: ModalBarrier(
+                  color: Theme.of(context).colorScheme.onSecondary,
+                ),
+              ),
+              const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.max,
+                  children: [
+                    CircularProgressIndicator(),
+                    Text('Wait for loading...'),
+                  ],
+                ),
+              ),
+            ]);
+          }
+
+          return Stack(
+            children: [
+              Row(
                 children: [
-                  TileLayer(
-                    urlTemplate:
-                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'com.example.map',
-                    tileProvider: CancellableNetworkTileProvider(),
+                  NavigationRail(
+                    selectedIndex: _activeEditor,
+                    groupAlignment: -0.95,
+                    labelType: NavigationRailLabelType.selected,
+                    onDestinationSelected: _changeEditor,
+                    destinations: const [
+                      NavigationRailDestination(
+                          icon: Icon(Icons.map_rounded),
+                          label: Text("Background")),
+                      NavigationRailDestination(
+                          icon: Icon(Icons.polyline_rounded),
+                          label: Text("Zones")),
+                      NavigationRailDestination(
+                          icon: Icon(Icons.pin_drop_rounded),
+                          label: Text("Markers")),
+                    ],
+                    leading: FloatingActionButton(
+                      child: const Icon(Icons.save),
+                      onPressed: () {
+                        setState(() {
+                          _loadDataFuture = _updateDataToDatabase(mapData);
+                        });
+                      },
+                    ),
                   ),
-                  _builders[_activeEditor],
-                  const SimpleAttributionWidget(
-                    source: Text('OpenStreetMap contributors'),
+                  const VerticalDivider(thickness: 1, width: 1),
+                  Expanded(
+                    child: _drawFlutterMap(context),
                   ),
                 ],
               ),
-            ),
-          ],
-        ),
+            ],
+          );
+        },
       ),
       bottomNavigationBar: null,
+    );
+  }
+
+  Widget _drawFlutterMap(BuildContext context) {
+    return FlutterMap(
+      mapController: mapController,
+      options: MapOptions(
+          onMapReady: _mapIsReady,
+          initialCenter: const LatLng(55.160312, 61.370404),
+          initialZoom: 9.2,
+          minZoom: minZoom,
+          maxZoom: maxZoom,
+          interactionOptions: const InteractionOptions(
+              flags: InteractiveFlag.all & ~InteractiveFlag.rotate)),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.example.map',
+          tileProvider: CancellableNetworkTileProvider(),
+        ),
+        _builders[_activeEditor],
+        const SimpleAttributionWidget(
+          source: Text('OpenStreetMap contributors'),
+        ),
+      ],
     );
   }
 
@@ -165,9 +189,6 @@ class _MapEditorState extends State<MapEditor> {
     setState(() {
       _activeEditor = editorIndex;
     });
-
-    var json = jsonEncode(mapData);
-    print(json);
   }
 
   void _mapIsReady() {
@@ -179,33 +200,38 @@ class _MapEditorState extends State<MapEditor> {
 
   void _onMapDataLoaded(MapData mapData) {
     this.mapData = mapData;
-    // todo update listeners;
+
+    for (var builder in _builders) {
+      builder.updateData(this.mapData);
+    }
   }
 
-  Future<void> _onError(error) async {
-    return showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Oops!'),
-            content: SingleChildScrollView(
-              child: ListBody(
-                children: [
-                  const Text('Something went wrong!'),
-                  Text('Error: $error'),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  setState(() {});
-                  Navigator.of(context).pop();
-                },
-                child: const Text('ok!'),
-              ),
-            ],
-          );
-        });
+  Future<MapData> _loadDataFromDatabase() {
+    return database.loadMapData().then((value) {
+      _onMapDataLoaded(value);
+      return value;
+    }).catchError((e) {
+      final snackBar = SnackBar(
+        content: Text('Error loading: $e'),
+        action: SnackBarAction(
+          label: 'Try again',
+          onPressed: () {
+            setState(() {
+              _loadDataFuture = _loadDataFromDatabase();
+            });
+          },
+        ),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(snackBar);
+      return MapData.defaultData();
+    });
+  }
+
+  Future<MapData> _updateDataToDatabase(MapData data) {
+    return database
+        .updateMapData(mapData)
+        .then((value) => {print('success save')})
+        .catchError((e) {print('error save $e');})
+        .then((value) => data);
   }
 }

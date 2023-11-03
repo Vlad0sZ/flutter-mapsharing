@@ -8,18 +8,10 @@ import 'package:sharing_map/utils/extensions.dart';
 /// Маленькие полигоны-зоны [zonePolygons]
 /// Каждый полигон содержит точки (points)
 class MapData {
-  final Polygon bigPolygon = Polygon(
-      points: [
-        const LatLng(90, 180),
-        const LatLng(-90, 180),
-        const LatLng(-90, -180),
-        const LatLng(90, -180),
-      ],
-      color: const Color(0x80000000),
-      isFilled: true,
-      holePointsList: []);
+  final Polygon bigPolygon;
+  final List<Polygon> zonePolygons;
 
-  final List<Polygon> zonePolygons = [];
+  MapData(this.bigPolygon, this.zonePolygons);
 
   List<Polygon> drawablePolygons() =>
       List.unmodifiable([bigPolygon, ...zonePolygons]);
@@ -31,5 +23,32 @@ class MapData {
     };
 
     return map;
+  }
+
+  factory MapData.fromJson(Map<String, dynamic> json) {
+    final Polygon bigPolygon = PolygonUtils.fromJson(json['big_polygon']);
+    final List<Polygon> zones = [];
+
+    var listOfZones = json.valueOrDefault('zones', []);
+    for (var item in listOfZones) {
+      zones.add(PolygonUtils.fromJson(item));
+    }
+
+    return MapData(bigPolygon, zones);
+  }
+
+  factory MapData.defaultData() {
+    final bp = Polygon(
+        points: [
+          const LatLng(90, 180),
+          const LatLng(-90, 180),
+          const LatLng(-90, -180),
+          const LatLng(90, -180),
+        ],
+        color: const Color(0x80000000),
+        isFilled: true,
+        holePointsList: []);
+
+    return MapData(bp, []);
   }
 }

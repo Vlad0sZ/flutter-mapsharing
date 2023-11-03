@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:sharing_map/data/map_data.dart';
 import 'package:sharing_map/ui/drag_marker_layer.dart';
 import 'package:sharing_map/ui/pin_point.dart';
 
@@ -26,6 +27,8 @@ abstract class EditorBuilder extends StatelessWidget {
   }
 
   void onEvent(MapEvent event);
+
+  void updateData(MapData value);
 }
 
 class MapZoneEditor extends EditorBuilder {
@@ -152,5 +155,17 @@ class MapZoneEditor extends EditorBuilder {
 
     if (newIndex >= total || newIndex < 0) return;
     editorListenable.selectZoneAt(newIndex);
+  }
+
+  @override
+  void updateData(MapData value) {
+    editorListenable.value = value;
+
+    int total = editorListenable.getZoneLength();
+    if (total == 0) {
+      editorListenable.clearSelection();
+    } else {
+      editorListenable.selectZoneAt(0);
+    }
   }
 }
